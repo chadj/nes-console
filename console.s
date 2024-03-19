@@ -84,28 +84,28 @@ load_palettes:
 
 fill_background: ; with spaces
   lda $2002 ; reset latch
-	lda #$20
-	sta $2006
-	lda #$00
-	sta $2006
-	; $20 over entire nametable which is a space
-	lda #$20
-	ldy #30 ; 30 rows
-	:
-		ldx #32 ; 32 columns
-		:
-			sta $2007
-			dex
-			bne :-
-		dey
-		bne :--
-	; set all attributes to 0
+  lda #$20
+  sta $2006
+  lda #$00
+  sta $2006
+  ; $20 over entire nametable which is a space
+  lda #$20
+  ldy #30 ; 30 rows
+  :
+    ldx #32 ; 32 columns
+    :
+      sta $2007
+      dex
+      bne :-
+    dey
+    bne :--
+  ; set all attributes to 0
   lda #0
-	ldx #64 ; 64 bytes
-	:
-		sta $2007
-		dex
-		bne :-
+  ldx #64 ; 64 bytes
+  :
+    sta $2007
+    dex
+    bne :-
 
 ldx #$80
 stx cursor_ptr+0
@@ -143,34 +143,34 @@ forever:
   jmp forever
 
 nmi:
-	; save registers
-	pha
-	txa
-	pha
-	tya
-	pha
-	; prevent NMI re-entry
-	lda nmi_lock
-	beq :+
-		jmp @nmi_end
-	:
-	lda #1
-	sta nmi_lock
-	; increment frame counter
-	inc nmi_count
-	;
+  ; save registers
+  pha
+  txa
+  pha
+  tya
+  pha
+  ; prevent NMI re-entry
+  lda nmi_lock
+  beq :+
+    jmp @nmi_end
+  :
+  lda #1
+  sta nmi_lock
+  ; increment frame counter
+  inc nmi_count
+  ;
   lda nmi_ready
-	bne :+ ; nmi_ready == 0 not ready to update PPU
-		jmp @ppu_update_end
-	:
-	cmp #2 ; nmi_ready == 2 turns rendering off
-	bne :+
-		lda #%00000000
-		sta $2001
-		ldx #0
-		stx nmi_ready
-		jmp @ppu_update_end
-	:
+  bne :+ ; nmi_ready == 0 not ready to update PPU
+    jmp @ppu_update_end
+  :
+  cmp #2 ; nmi_ready == 2 turns rendering off
+  bne :+
+    lda #%00000000
+    sta $2001
+    ldx #0
+    stx nmi_ready
+    jmp @ppu_update_end
+  :
 
   ;
   ; CODE HERE
@@ -213,24 +213,24 @@ nmi:
   sta $2005
   sta $2005
 
-	;lda #%00001010
-	;sta $2001
-	;; flag PPU update complete
-	;ldx #0
-	;stx nmi_ready
+  ;lda #%00001010
+  ;sta $2001
+  ;; flag PPU update complete
+  ;ldx #0
+  ;stx nmi_ready
   @ppu_update_end:
-	; if this engine had music/sound, this would be a good place to play it
-	; unlock re-entry flag
-	lda #0
-	sta nmi_lock
+  ; if this engine had music/sound, this would be a good place to play it
+  ; unlock re-entry flag
+  lda #0
+  sta nmi_lock
   @nmi_end:
-	; restore registers and return
-	pla
-	tay
-	pla
-	tax
-	pla
-	rti
+  ; restore registers and return
+  pla
+  tay
+  pla
+  tax
+  pla
+  rti
 
 hello:
   ; 
