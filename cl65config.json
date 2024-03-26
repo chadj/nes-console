@@ -1,5 +1,5 @@
 {
   "executable": "/opt/homebrew/bin/cl65",
   "input": "console.s",
-  "params": "--verbose --target nes -C console.cfg -o console.nes"
+  "params": "--verbose --target nes -g -Wl \"--dbgfile\" -Wl \"console.dbg\" -C console.cfg -o console.nes"
 }

@@ -3,3 +3,5 @@
 ;*.nes*
 .DS_Store
 *.fdb
+*.dbg
+*.nes.*

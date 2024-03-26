@@ -23,8 +23,16 @@
   scroll_nmt:     .res 1 ; nametable select (0-3 = $2000,$2400,$2800,$2C00)
   cursor_ptr:     .res 2 ;    
   temp:           .res 2 ; temporary variable
+  temp2:          .res 1
+  temp3:          .res 1
 
 .segment "PROG_RAM"
+  counter:        .res 1
+  print_char:     .res 1 ;
+  back_char:      .res 1 ;
+  key_state:      .res 9 ;
+  last_key_state: .res 9 ;
+
 
 ; "nes" linker config requires a STARTUP section, even if it's empty
 .segment "STARTUP"
@@ -112,21 +120,6 @@ stx cursor_ptr+0
 ldx #$20
 stx cursor_ptr+1
 
-ldx #$01
-stx nmi_ready
-
-; background:
-;   ldx #$20 	; 
-;   stx $2006
-;   ldx #$80 	;
-;   stx $2006
-;   ldx #$00
-; @loop:	lda hello, x 	; Load the hello message into SPR-RAM
-;   sta $2007
-;   inx
-;   cpx #53
-;   bne @loop
-
 ready_bg_for_rendering:
   lda $2002 ; reset ppu latch
   lda #$00 ; Reset background scroll position
@@ -140,7 +133,131 @@ enable_rendering:
   sta $2001
 
 forever:
+  vblankwait3:
+  bit $2002
+  bpl vblankwait3
+
+  jsr readkb
+
+  ldx #$00
+  stx counter
+  ldx #$ff
+  _outer:
+    inx
+    cpx #$09
+    bpl _end
+
+    ldy #$00
+    lda key_state, x
+    _inner:
+      ror A
+      bcc _endcompare
+        sty temp
+        stx temp2
+        sta temp3
+
+        iny
+        lda last_key_state, x
+        :
+          dey
+          bmi :+
+          ror A
+          jmp :-
+        :
+
+        bcs :+
+          ldx counter
+          ldy charsetmap, x
+          sty print_char
+          ldy #$01
+          sty nmi_ready
+          jmp _end
+        :
+
+        ldy temp
+        ldx temp2
+        lda temp3
+      _endcompare:
+      sty temp
+      ldy counter
+      iny
+      sty counter
+      ldy temp
+
+      iny
+      cpy #$08
+      bmi _inner
+      bpl _outer
+  _end:
+
+  ldx #$08
+  :
+      lda key_state, x
+      sta last_key_state, x
+      dex
+      bpl :-
+
+  ;ldx #$00
+  ;stx nmi_ready
   jmp forever
+
+readkb:
+;Reads the keyboard matrix state.
+  lda #$05
+  sta $4016          ;reset keyboard
+  nop
+  nop
+  nop
+  nop
+  nop
+  nop                ;wait for keyboard to get ready
+  
+;Read all 9 rows in column 0 and 1:
+  ldx #$00           ;loop counter
+@loop_r:
+
+;Read column 0 keys:
+  lda #$04           ;select colum 0 (from second lap: also select next row)
+  sta $4016
+  ldy #$0A           ;loop counter
+@wait1:
+  dey
+  bne @wait1
+  nop
+  nop                ;wait to give time to scan all keys
+  lda $4017          ;read key state of selected row and column
+  lsr a              ;right shift to get key state into low nibble
+  and #$0F           ;clear high nibble
+  sta key_state+0,x  ;save column 0 key states in RAM
+
+;Read column 1 keys:
+  lda #$06           ;select colum 1
+  sta $4016
+  ldy #$0A           ;loop counter
+@wait2:
+  dey
+  bne @wait2
+  nop
+  nop                ;wait to give time to scan all keys
+  lda $4017          ;read key status of selected row and column
+  rol a
+  rol a
+  rol a              ;rotate left to get key status to high nibble
+  and #$F0           ;clear low nibble
+  ora key_state+0,x  ;merge A with column 0 key status
+  eor #$FF           ;invert key states so that 0=unpressed
+  ldy #$08           ;loop counter for 8 bits
+@store:
+  asl a              ;shift bit 7 left into carry
+  ror key_state+0,x  ;store key state bit to RAM from carry
+  dey
+  bne @store         ;loop for storing all 8 bits in RAM
+  
+  inx
+  cpx #$09
+  bne @loop_r        ;loop for all 9 rows
+  
+  rts
 
 nmi:
   ; save registers
@@ -176,48 +293,92 @@ nmi:
   ; CODE HERE
   ; 
 
-  @background:
+  lda print_char
+  cmp #$48
+  beq  :+++
+    ; Increment cursor position
+    inc cursor_ptr+0 ; increment low byte
+    bne :+ ; 255+1 rolls over to 0, so increment high byte too:
+      inc cursor_ptr+1
+    :
 
-  ; Increment cursor position
-  inc cursor_ptr+0 ; increment low byte
-  bne :+ ; 255+1 rolls over to 0, so increment high byte too:
-  inc cursor_ptr+1
+    ; Determine if cursor position has wrapped (16 bit subtraction with branch)
+    sec           ; initialize carry flag to 1 for subtraction
+    lda cursor_ptr+0
+    sbc #$a0      ; subtract the lowest byte first
+    sta temp+0
+    lda cursor_ptr+1
+    sbc #$23      ; then subtract the next byte using the carry output from the previous byte
+    sta temp+1
+    bmi :+
+      ldx #$80
+      stx cursor_ptr+0
+      ldx #$20
+      stx cursor_ptr+1
+    :
   :
-
-  ; Determine if cursor position has wrapped (16 bit subtraction with branch)
-  sec           ; initialize carry flag to 1 for subtraction
-  lda cursor_ptr+0
-  sbc #$a0      ; subtract the lowest byte first
-  sta temp+0
-  lda cursor_ptr+1
-  sbc #$23      ; then subtract the next byte using the carry output from the previous byte
-  sta temp+1
-  bmi :+
-    ldx #$80
-    stx cursor_ptr+0
-    ldx #$20
-    stx cursor_ptr+1
+  bne :+
+    lda #$20
+    sta print_char
+    lda #$48
+    sta back_char
   :
   
   ; Render next character in sequence to cursor position
+  bit $2002 ; reset latch
   ldx cursor_ptr+1 
   stx $2006
   ldx cursor_ptr+0
   stx $2006
 
-  lda nmi_count
+  lda print_char
   sta $2007
 
-  ; enable rendering
+  lda back_char
+  cmp #$48
+  bne :+++
+    lda cursor_ptr+0
+    bne :+
+      dec cursor_ptr+1
+    :
+    dec cursor_ptr+0
+
+    ; Determine if cursor position has wrapped (16 bit subtraction with branch)
+    sec           ; initialize carry flag to 1 for subtraction
+    lda cursor_ptr+0
+    sbc #$80      ; subtract the lowest byte first
+    sta temp+0
+    lda cursor_ptr+1
+    sbc #$20      ; then subtract the next byte using the carry output from the previous byte
+    sta temp+1
+    bpl :+
+      ldx #$80
+      stx cursor_ptr+0
+      ldx #$20
+      stx cursor_ptr+1
+    :
+
+    lda #0
+    sta back_char
+  :
+
+  ;
+  ; END CODE HERE
+  ;
+
+  ; Ensure NMI enabled
+  lda #%10000000	  
+  sta $2000
+  ; reset bg scroll position
   lda #$00 ; Reset background scroll position
   sta $2005
   sta $2005
-
-  ;lda #%00001010
-  ;sta $2001
-  ;; flag PPU update complete
-  ;ldx #0
-  ;stx nmi_ready
+  ; enable rendering
+  lda #%00001010
+  sta $2001
+  ; flag PPU update complete
+  ldx #0
+  stx nmi_ready
   @ppu_update_end:
   ; if this engine had music/sound, this would be a good place to play it
   ; unlock re-entry flag
@@ -232,11 +393,16 @@ nmi:
   pla
   rti
 
-hello:
-  ; 
-  .byte $08, $05, $0c, $0c, $0f, $20, $17, $0f, $12, $0c, $04, $20, $17, $09, $14, $08, $20, $14
-  .byte $08, $05, $20, $01, $10, $10, $0C, $05, $20, $1d, $1b, $20, $20, $20, $66, $6f, $6e, $74
-  .byte $20, $66, $72, $6f, $6d, $20, $74, $68, $65, $20, $0e, $05, $13, $20, $21, $21, $21
+charsetmap:
+  .byte $48, $1c, $20, $20, $1d, $1b, $20, $20
+  .byte $1e, $2d, $2f, $1f, $3b, $3a, $00, $20
+  .byte $30, $10, $2c, $2e, $0b, $0c, $0f, $20
+  .byte $38, $39, $0e, $0d, $0a, $15, $09, $20
+  .byte $36, $37, $16, $02, $08, $07, $19, $20
+  .byte $34, $35, $03, $06, $04, $12, $14, $20
+  .byte $33, $05, $1a, $18, $01, $13, $17, $40
+  .byte $32, $31, $20, $20, $20, $11, $20, $41
+  .byte $20, $48, $20, $4a, $48, $55, $4b, $48
 
 palettes:
   ; Background Palette
